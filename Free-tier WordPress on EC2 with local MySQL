@@ -76,6 +76,12 @@ Resources:
           chmod -R 755 /var/www/html
 
           systemctl restart apache2
+          # swap file for low memory issue
+          fallocate -l 2G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
 
       Tags:
         - Key: Name
