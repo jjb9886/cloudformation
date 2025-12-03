@@ -1,4 +1,4 @@
-uname: Deploy CloudFormation
+name: Deploy CloudFormation
 
 on:
   workflow_dispatch:
