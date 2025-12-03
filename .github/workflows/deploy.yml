@@ -31,4 +31,5 @@ jobs:
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               Env=Prod \
-              InstanceType=t3.micro
+              InstanceType=t3.micro \
+              KeyName=${{ secrets.EC2_KEY_NAME }}
