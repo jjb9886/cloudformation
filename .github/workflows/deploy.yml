@@ -1,4 +1,4 @@
-name: Deploy CloudFormation
+uname: Deploy CloudFormation
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-1   # change if needed
+          aws-region: eu-west-1   # change if needed
 
       # 3. Run CloudFormation deploy command
       - name: Deploy CloudFormation Stack
