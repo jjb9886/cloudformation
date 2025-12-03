@@ -26,7 +26,7 @@ jobs:
       - name: Deploy CloudFormation Stack
         run: |
           aws cloudformation deploy \
-            --template-file wordpress-ec2-local-sql1 \
+            --template-file Free-tier WordPress on EC2 with local MySQL \
             --stack-name my-stack \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
