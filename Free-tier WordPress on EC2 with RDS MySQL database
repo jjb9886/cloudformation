@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Free-tier WordPress on EC2 with RDS MySQL database
+
+Parameters:
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to SSH into the server.
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t3.small
+      - t3.medium
+
+  DBUser:
+    Type: String
+    Default: wpuser
+    Description: RDS database username
+
+  DBPassword:
+    NoEcho: true
+    Type: String
+    MinLength: 8
+    Description: RDS database password
+
+  SSHLocation:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Restrict SSH access (e.g. 203.0.113.4/32)
+
+Resources:
+
+  #########################################
+  # Security Groups
+  #########################################
+
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP/HTTPS/SSH
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  RDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow MySQL from EC2 only
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebServerSG
+
+  #########################################
+  # RDS Database
+  #########################################
+
+  WordPressDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: "20"
+      Engine: mysql
+      EngineVersion: "8.0"
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      MultiAZ: false
+      PubliclyAccessible: false
+      StorageType: gp3
+      VPCSecurityGroups:
+        - !Ref RDSSG
+      DBName: wordpress
+      BackupRetentionPeriod: 7
+
+  #########################################
+  # EC2 WordPress Server
+  #########################################
+
+  WordPressInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref WebServerSG
+      ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
+      Tags:
+        - Key: Name
+          Value: WordPress-Ubuntu
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -xe
+
+          apt update -y
+          apt install -y apache2 php php-mysql php-cli php-xml php-curl \
+                         php-mbstring php-gd wget unzip
+
+          # Enable Apache modules
+          a2enmod rewrite
+          systemctl restart apache2
+
+          # Install WordPress
+          cd /tmp
+          wget https://wordpress.org/latest.zip
+          unzip latest.zip
+          rm -rf /var/www/html/*
+          mv wordpress/* /var/www/html/
+
+          cp /var/www/html/wp-config-sample.php /var/www/html/wp-config.php
+
+          # Configure WordPress to use RDS
+          sed -i "s/database_name_here/wordpress/" /var/www/html/wp-config.php
+          sed -i "s/username_here/${DBUser}/" /var/www/html/wp-config.php
+          sed -i "s/password_here/${DBPassword}/" /var/www/html/wp-config.php
+          sed -i "s/localhost/${WordPressDB.Endpoint.Address}/" /var/www/html/wp-config.php
+
+          chown -R www-data:www-data /var/www/html
+          chmod -R 755 /var/www/html
+
+          # Add swap for t2/t3 instances
+          fallocate -l 1G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
+
+Outputs:
+
+  WebsiteURL:
+    Description: WordPress Website URL
+    Value: !Sub "http://${WordPressInstance.PublicDnsName}"
+
+  RDSEndpoint:
+    Description: RDS Connection Endpoint
+    Value: !GetAtt WordPressDB.Endpoint.Address
