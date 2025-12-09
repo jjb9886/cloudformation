@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: WordPress on EC2 with RDS MySQL in a simple VPC
+Description: WordPress on EC2 with RDS MySQL in a simple VPC (multi-AZ RDS)
 
 Parameters:
 
@@ -55,12 +55,19 @@ Resources:
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [0, !GetAZs ""]
 
-  PrivateSubnet:
+  PrivateSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref SimpleVPC
       CidrBlock: 10.0.2.0/24
       AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SimpleVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -130,6 +137,15 @@ Resources:
   #######################
   # RDS MySQL
   #######################
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      DBSubnetGroupName: wordpress-rds-subnet
+
   WordPressDB:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -144,14 +160,6 @@ Resources:
       VPCSecurityGroups:
         - !Ref RDSSG
       DBSubnetGroupName: !Ref RDSSubnetGroup
-
-  RDSSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Subnet group for RDS
-      SubnetIds:
-        - !Ref PrivateSubnet
-      DBSubnetGroupName: wordpress-rds-subnet
 
   #######################
   # EC2 WordPress
