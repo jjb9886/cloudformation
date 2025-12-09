@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Free-tier WordPress on EC2 with RDS MySQL database
+Description: WordPress on EC2 with RDS MySQL in a simple VPC
 
 Parameters:
 
@@ -30,18 +30,78 @@ Parameters:
   SSHLocation:
     Type: String
     Default: 0.0.0.0/0
-    Description: Restrict SSH access (e.g. 203.0.113.4/32)
+    Description: Restrict SSH access
 
 Resources:
 
-  #########################################
-  # Security Groups
-  #########################################
+  #######################
+  # VPC & Networking
+  #######################
+  SimpleVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: SimpleVPC
 
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SimpleVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SimpleVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SimpleIGW
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref SimpleVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SimpleVPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  #######################
+  # Security Groups
+  #######################
   WebServerSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow HTTP/HTTPS/SSH
+      VpcId: !Ref SimpleVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -51,22 +111,25 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-     
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
 
   RDSSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow MySQL from EC2 only
+      GroupDescription: Allow MySQL from EC2
+      VpcId: !Ref SimpleVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
           SourceSecurityGroupId: !Ref WebServerSG
 
-  #########################################
-  # RDS Database
-  #########################################
-
+  #######################
+  # RDS MySQL
+  #######################
   WordPressDB:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -76,30 +139,35 @@ Resources:
       EngineVersion: "8.0"
       MasterUsername: !Ref DBUser
       MasterUserPassword: !Ref DBPassword
-      MultiAZ: false
+      DBName: wordpress
       PubliclyAccessible: false
-      StorageType: gp3
       VPCSecurityGroups:
         - !Ref RDSSG
-      DBName: wordpress
-      BackupRetentionPeriod: 7
+      DBSubnetGroupName: !Ref RDSSubnetGroup
 
-  #########################################
-  # EC2 WordPress Server
-  #########################################
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnet
+      DBSubnetGroupName: wordpress-rds-subnet
 
+  #######################
+  # EC2 WordPress
+  #######################
   WordPressInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
+      SubnetId: !Ref PublicSubnet
       SecurityGroupIds:
         - !Ref WebServerSG
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
       Tags:
         - Key: Name
           Value: WordPress-Ubuntu
-
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -109,11 +177,9 @@ Resources:
           apt install -y apache2 php php-mysql php-cli php-xml php-curl \
                          php-mbstring php-gd wget unzip
 
-          # Enable Apache modules
           a2enmod rewrite
           systemctl restart apache2
 
-          # Install WordPress
           cd /tmp
           wget https://wordpress.org/latest.zip
           unzip latest.zip
@@ -122,7 +188,6 @@ Resources:
 
           cp /var/www/html/wp-config-sample.php /var/www/html/wp-config.php
 
-          # Configure WordPress to use RDS
           sed -i "s/database_name_here/wordpress/" /var/www/html/wp-config.php
           sed -i "s/username_here/${DBUser}/" /var/www/html/wp-config.php
           sed -i "s/password_here/${DBPassword}/" /var/www/html/wp-config.php
@@ -131,7 +196,6 @@ Resources:
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
 
-          # Add swap for t2/t3 instances
           fallocate -l 1G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
@@ -139,7 +203,6 @@ Resources:
           echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
 
 Outputs:
-
   WebsiteURL:
     Description: WordPress Website URL
     Value: !Sub "http://${WordPressInstance.PublicDnsName}"
