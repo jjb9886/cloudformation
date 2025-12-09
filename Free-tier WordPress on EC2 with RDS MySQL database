@@ -51,9 +51,7 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
+     
 
   RDSSG:
     Type: AWS::EC2::SecurityGroup
