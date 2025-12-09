@@ -185,12 +185,14 @@ Resources:
           apt install -y apache2 php php-mysql php-cli php-xml php-curl \
                          php-mbstring php-gd wget unzip
 
+          apt autoremove
+          apt clean
           a2enmod rewrite
           systemctl restart apache2
-
           cd /tmp
           wget https://wordpress.org/latest.zip
           unzip latest.zip
+          rm latest.zip
           rm -rf /var/www/html/*
           mv wordpress/* /var/www/html/
 
@@ -204,7 +206,7 @@ Resources:
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
 
-          fallocate -l 1G /swapfile
+          fallocate -l 2G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
           swapon /swapfile
