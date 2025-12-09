@@ -32,4 +32,6 @@ jobs:
             --parameter-overrides \
               Env=Prod \
               InstanceType=t3.micro \
+              DBPassword="${{ secrets.DB_PASSWORD }}" \
+              DBUser="wpuser" \
               KeyName=${{ secrets.EC2_KEY_NAME }}
