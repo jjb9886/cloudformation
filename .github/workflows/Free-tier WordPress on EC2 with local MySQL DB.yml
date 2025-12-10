@@ -1,9 +1,12 @@
 name: Deploy CloudFormation Free-tier WordPress on EC2 with local MySQL
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+    paths:
+      - 'Free-tier WordPress on EC2 with local MySQL DB/**'
+  pull_request:
+    paths:
+      - 'Free-tier WordPress on EC2 with local MySQL DB/**'
 
 jobs:
   deploy:
