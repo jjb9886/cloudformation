@@ -1,4 +1,4 @@
-name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS MariaDB
+name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS
 
 on:
   push:
