@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Joomla on EC2 (NGINX + PHP-FPM) with RDS MariaDB in a simple VPC 
+Description: Joomla on EC2 (NGINX + PHP-FPM) with RDS in a simple VPC 
 
 Parameters:
 
