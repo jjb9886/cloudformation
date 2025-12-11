@@ -1,0 +1,40 @@
+name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS MariaDB
+
+on:
+  push:
+    paths:
+      - 'Free-Tier Joomla on EC2 with RDS MariaDB/**'
+  pull_request:
+    paths:
+      - 'Free-Tier Joomla on EC2 with RDS MariaDB/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repo
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Configure AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1   # change if needed
+
+      # 3. Run CloudFormation deploy command
+      - name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS MariaDB
+        run: |
+          aws cloudformation deploy \
+            --template-file "Joomla on EC2 (NGINX + PHP-FPM) with RDS MariaDB in a simple VPC" \
+            --stack-name my-stack-ec2-Joomla-RDS MariaDB \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              Env=Prod \
+              InstanceType=t3.micro \
+              DBPassword="${{ secrets.DB_PASSWORD }}" \
+              DBUser="wpuser" \
+              KeyName=${{ secrets.EC2_KEY_NAME }}
