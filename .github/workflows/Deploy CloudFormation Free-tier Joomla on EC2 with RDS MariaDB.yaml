@@ -30,7 +30,7 @@ jobs:
         run: |
           aws cloudformation deploy \
             --template-file "Joomla on EC2 (NGINX + PHP-FPM) with RDS MariaDB in a simple VPC" \
-            --stack-name my-stack-ec2-Joomla-RDS MariaDB \
+            --stack-name my-stack-ec2-Joomla-RDS mariadb \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               Env=Prod \
