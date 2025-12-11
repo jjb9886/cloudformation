@@ -1,4 +1,4 @@
-name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS MariaDB
+name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
           aws-region: eu-west-1   # change if needed
 
       # 3. Run CloudFormation deploy command
-      - name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS MariaDB
+      - name: Deploy CloudFormation Free-tierJoomla on EC2 with RDS
         run: |
           aws cloudformation deploy \
             --template-file "Joomla on EC2 (NGINX + PHP-FPM) with RDS MariaDB in a simple VPC" \
