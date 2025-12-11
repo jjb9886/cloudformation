@@ -188,8 +188,8 @@ Resources:
           systemctl restart apache2
 
           cd /tmp
-          wget https://downloads.joomla.org/cms/joomla4/latest/Joomla_4-Stable-Full_Package.zip?format=zip -O joomla.zip
-          unzip joomla.zip -d /var/www/html/
+          wget -O joomla.zip https://github.com/joomla/joomla-cms/releases/latest/download/Joomla_4-Stable-Full_Package.zip
+          unzip Joomla_4-Stable-Full_Package.zip -d /var/www/html/
 
           # Create Joomla configuration.php from template
           cat <<EOF > /var/www/html/configuration.php
