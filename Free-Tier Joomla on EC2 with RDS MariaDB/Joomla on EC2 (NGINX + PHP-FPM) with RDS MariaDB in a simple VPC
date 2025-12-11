@@ -139,7 +139,7 @@ Resources:
       DBInstanceClass: db.t3.micro
       AllocatedStorage: "20"
       Engine: mariadb
-      EngineVersion: "10.6"
+      EngineVersion: "10.6.18"
       MasterUsername: !Ref DBUser
       MasterUserPassword: !Ref DBPassword
       DBName: joomla
