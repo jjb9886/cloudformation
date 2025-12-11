@@ -1,0 +1,247 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Joomla on EC2 (NGINX + PHP-FPM) with RDS MariaDB in a simple VPC
+
+Parameters:
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t3.small
+      - t3.medium
+
+  DBUser:
+    Type: String
+    Default: joomlauser
+
+  DBPassword:
+    NoEcho: true
+    Type: String
+    MinLength: 8
+
+  SSHLocation:
+    Type: String
+    Default: 0.0.0.0/0
+
+
+Resources:
+
+  #######################
+  # VPC & Networking
+  #######################
+  SimpleVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SimpleVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SimpleVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SimpleVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref SimpleVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SimpleVPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+
+  #######################
+  # Security Groups
+  #######################
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP/HTTPS/SSH
+      VpcId: !Ref SimpleVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  RDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SQL access from EC2
+      VpcId: !Ref SimpleVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebServerSG
+
+
+  #######################
+  # RDS MariaDB
+  #######################
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS subnet group
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+
+  JoomlaDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: "20"
+      Engine: mariadb
+      EngineVersion: "10.6"
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      DBName: joomla
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - !Ref RDSSG
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+
+
+  #######################
+  # EC2 Joomla (NGINX + PHP-FPM)
+  #######################
+  JoomlaInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref WebServerSG
+      ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
+      Tags:
+        - Key: Name
+          Value: Joomla-NGINX
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -xe
+
+          apt update -y
+
+          # Install NGINX + PHP-FPM stack
+          apt install -y nginx php-fpm php-mysql php-xml php-mbstring \
+                         php-json php-curl php-zip php-gd php-cli unzip wget
+
+          systemctl enable nginx
+          systemctl restart nginx
+
+          # Install Joomla
+          cd /tmp
+          wget https://downloads.joomla.org/cms/joomla4/latest/Joomla_4-Stable-Full_Package.zip?format=zip -O joomla.zip
+          unzip joomla.zip -d /var/www/html/
+
+          # Create configuration.php
+          cat <<EOF > /var/www/html/configuration.php
+          <?php
+          class JConfig {
+              public $offline = '0';
+              public $sitename = 'My Joomla Site';
+              public $editor = 'tinymce';
+              public $dbtype = 'mysqli';
+              public $host = '${JoomlaDB.Endpoint.Address}';
+              public $user = '${DBUser}';
+              public $password = '${DBPassword}';
+              public $db = 'joomla';
+              public $dbprefix = 'jos_';
+              public $secret = '$(openssl rand -hex 16)';
+          }
+          EOF
+
+          # NGINX config for Joomla
+          cat <<EOF > /etc/nginx/sites-available/default
+          server {
+              listen 80 default_server;
+              root /var/www/html;
+              index index.php index.html;
+
+              location / {
+                  try_files \$uri \$uri/ /index.php?\$args;
+              }
+
+              location ~ \.php$ {
+                  include snippets/fastcgi-php.conf;
+                  fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+              }
+
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                  try_files \$uri =404;
+              }
+          }
+          EOF
+
+          systemctl restart nginx
+          systemctl restart php8.1-fpm || true
+
+          chown -R www-data:www-data /var/www/html
+          chmod -R 755 /var/www/html
+
+          # Enable swap – critical for micro instances
+          fallocate -l 2G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
+
+
+Outputs:
+
+  WebsiteURL:
+    Description: Joomla Website URL
+    Value: !Sub "http://${JoomlaInstance.PublicDnsName}"
+
+  RDSEndpoint:
+    Description: MariaDB RDS Endpoint
+    Value: !GetAtt JoomlaDB.Endpoint.Address
