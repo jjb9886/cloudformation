@@ -1,10 +1,11 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Joomla on EC2 (NGINX + PHP-FPM) with RDS in a simple VPC 
+Description: Joomla on EC2 with RDS MySQL in a simple VPC (multi-AZ RDS)
 
 Parameters:
 
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to SSH into the server.
 
   InstanceType:
     Type: String
@@ -18,15 +19,18 @@ Parameters:
   DBUser:
     Type: String
     Default: joomlauser
+    Description: RDS database username
 
   DBPassword:
     NoEcho: true
     Type: String
     MinLength: 8
+    Description: RDS database password
 
   SSHLocation:
     Type: String
     Default: 0.0.0.0/0
+    Description: Restrict SSH access
 
 
 Resources:
@@ -40,6 +44,9 @@ Resources:
       CidrBlock: 10.0.0.0/16
       EnableDnsHostnames: true
       EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: SimpleVPC
 
   PublicSubnet:
     Type: AWS::EC2::Subnet
@@ -98,7 +105,7 @@ Resources:
   WebServerSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP/SSH
+      GroupDescription: Allow HTTP/HTTPS/SSH
       VpcId: !Ref SimpleVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -109,11 +116,15 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
 
   RDSSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow SQL access from EC2
+      GroupDescription: Allow MySQL from EC2
       VpcId: !Ref SimpleVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -123,12 +134,12 @@ Resources:
 
 
   #######################
-  # RDS MariaDB
+  # RDS MySQL
   #######################
   RDSSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: RDS subnet group
+      DBSubnetGroupDescription: Subnet group for RDS
       SubnetIds:
         - !Ref PrivateSubnetA
         - !Ref PrivateSubnetB
@@ -138,8 +149,8 @@ Resources:
     Properties:
       DBInstanceClass: db.t3.micro
       AllocatedStorage: "20"
-      Engine: mariadb
-      EngineVersion: "10.6.18"
+      Engine: mysql
+      EngineVersion: "8.0"
       MasterUsername: !Ref DBUser
       MasterUserPassword: !Ref DBPassword
       DBName: joomla
@@ -150,7 +161,7 @@ Resources:
 
 
   #######################
-  # EC2 Joomla (NGINX + PHP-FPM)
+  # EC2 Joomla
   #######################
   JoomlaInstance:
     Type: AWS::EC2::Instance
@@ -163,72 +174,54 @@ Resources:
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
       Tags:
         - Key: Name
-          Value: Joomla-NGINX
+          Value: Joomla-Ubuntu
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -xe
 
           apt update -y
+          apt install -y apache2 php php-mysql php-cli php-xml php-curl \
+                         php-mbstring php-gd php-json php-zip unzip wget
 
-          # Install NGINX + PHP-FPM
-          apt install -y nginx php-fpm php-mysql php-xml php-mbstring \
-                         php-json php-curl php-zip php-gd php-cli unzip wget
+          systemctl enable apache2
+          systemctl restart apache2
 
-          systemctl enable nginx
-          systemctl restart nginx
-
-          # Install Joomla
           cd /tmp
           wget https://downloads.joomla.org/cms/joomla4/latest/Joomla_4-Stable-Full_Package.zip?format=zip -O joomla.zip
           unzip joomla.zip -d /var/www/html/
 
-          # Create configuration.php
+          # Create Joomla configuration.php from template
           cat <<EOF > /var/www/html/configuration.php
           <?php
           class JConfig {
-              public $$offline = '0';
-              public $$sitename = 'My Joomla Site';
-              public $$editor = 'tinymce';
-              public $$dbtype = 'mysqli';
-              public $$host = '${JoomlaDB.Endpoint.Address}';
-              public $$user = '${DBUser}';
-              public $$password = '${DBPassword}';
-              public $$db = 'joomla';
-              public $$dbprefix = 'jos_';
-              public $$secret = '$(openssl rand -hex 16)';
+              public \$offline = '0';
+              public \$sitename = 'My Joomla Site';
+              public \$editor = 'tinymce';
+              public \$list_limit = '20';
+              public \$access = '1';
+              public \$dbtype = 'mysqli';
+              public \$host = '${JoomlaDB.Endpoint.Address}';
+              public \$user = '${DBUser}';
+              public \$password = '${DBPassword}';
+              public \$db = 'joomla';
+              public \$dbprefix = 'jos_';
+              public \$secret = '$(openssl rand -hex 16)';
+              public \$gzip = '0';
+              public \$error_reporting = 'default';
+              public \$helpurl = '';
           }
           EOF
-
-          # NGINX config (CLOUDFORMATION SAFE)
-          cat <<EOF > /etc/nginx/sites-available/default
-          server {
-              listen 80 default_server;
-              root /var/www/html;
-              index index.php index.html;
-
-              location / {
-                  try_files $$uri $$uri/ /index.php?$$args;
-              }
-
-              location ~ \.php$$ {
-                  include snippets/fastcgi-php.conf;
-                  fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-              }
-
-              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$$ {
-                  try_files $$uri =404;
-              }
-          }
-          EOF
-
-          systemctl restart nginx
-          systemctl restart php8.1-fpm || true
 
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
 
-          # Add swap for micro instances
+          # Enable Apache rewrite
+          a2enmod rewrite
+          sed -i 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+          systemctl restart apache2
+
+          # Add swap (helps free-tier)
           fallocate -l 2G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
@@ -243,5 +236,5 @@ Outputs:
     Value: !Sub "http://${JoomlaInstance.PublicDnsName}"
 
   RDSEndpoint:
-    Description: MariaDB RDS Endpoint
+    Description: RDS Connection Endpoint
     Value: !GetAtt JoomlaDB.Endpoint.Address
