@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Secure Joomla on EC2 (NGINX + PHP-FPM) with private RDS MariaDB
+Description: Joomla on EC2 (NGINX + PHP-FPM) with private RDS MariaDB in VPC
 
 Parameters:
   KeyName:
@@ -29,6 +29,7 @@ Parameters:
     Default: 0.0.0.0/0
 
 Resources:
+
   #######################
   # VPC & Networking
   #######################
@@ -90,6 +91,45 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
 
   #######################
+  # NAT Gateway for EC2 internet access
+  #######################
+  EIPNat:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPNat.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SimpleVPC
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NatGateway
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnetARouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  #######################
   # Security Groups
   #######################
   WebServerSG:
@@ -145,14 +185,14 @@ Resources:
       DBSubnetGroupName: !Ref RDSSubnetGroup
 
   #######################
-  # EC2 Joomla (public subnet)
+  # EC2 Joomla (PrivateSubnetA)
   #######################
   JoomlaInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref PrivateSubnetA
       SecurityGroupIds:
         - !Ref WebServerSG
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
@@ -212,11 +252,15 @@ Resources:
           systemctl restart nginx
           systemctl restart php8.1-fpm || true
 
-          # Wait for RDS in private subnet
-          until nc -z -v -w30 ${JoomlaDB.Endpoint.Address} 3306
-          do
-            echo "Waiting for MariaDB RDS..."
-            sleep 10
+          # Wait for RDS DNS and port
+          until getent hosts ${JoomlaDB.Endpoint.Address}; do
+            echo "Waiting for RDS DNS..."
+            sleep 5
+          done
+
+          until nc -zv ${JoomlaDB.Endpoint.Address} 3306; do
+            echo "Waiting for RDS port..."
+            sleep 5
           done
 
           # Joomla headless install
