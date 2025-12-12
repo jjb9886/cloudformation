@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Joomla on EC2 (NGINX + PHP-FPM) with private RDS MariaDB in VPC
+Description: Joomla on EC2 (NGINX + PHP-FPM) with public EC2 and private RDS MariaDB
 
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: EC2 KeyPair
+    Description: EC2 KeyPair for SSH
 
   InstanceType:
     Type: String
@@ -91,45 +91,6 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
 
   #######################
-  # NAT Gateway for EC2 internet access
-  #######################
-  EIPNat:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
-  NatGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt EIPNat.AllocationId
-      SubnetId: !Ref PublicSubnet
-
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref SimpleVPC
-
-  PrivateRoute:
-    Type: AWS::EC2::Route
-    DependsOn: NatGateway
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway
-
-  PrivateSubnetARouteTableAssoc:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PrivateSubnetA
-      RouteTableId: !Ref PrivateRouteTable
-
-  PrivateSubnetBRouteTableAssoc:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PrivateSubnetB
-      RouteTableId: !Ref PrivateRouteTable
-
-  #######################
   # Security Groups
   #######################
   WebServerSG:
@@ -145,6 +106,10 @@ Resources:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
           CidrIp: 0.0.0.0/0
 
   RDSSG:
@@ -185,14 +150,15 @@ Resources:
       DBSubnetGroupName: !Ref RDSSubnetGroup
 
   #######################
-  # EC2 Joomla (PrivateSubnetA)
+  # Public EC2 Joomla
   #######################
   JoomlaInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
-      SubnetId: !Ref PrivateSubnetA
+      SubnetId: !Ref PublicSubnet       # Public subnet for website
+      AssociatePublicIpAddress: true    # Assign public IP
       SecurityGroupIds:
         - !Ref WebServerSG
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
@@ -204,7 +170,6 @@ Resources:
           #!/bin/bash
           set -xe
 
-          # Update & install stack
           apt update -y
           apt install -y nginx php-fpm php-mysql php-xml php-mbstring php-json php-curl php-zip php-gd php-cli unzip wget netcat
 
@@ -220,14 +185,14 @@ Resources:
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
 
-          # Swap
+          # Swap for micro instance
           fallocate -l 2G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
           swapon /swapfile
           echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
 
-          # Configure NGINX
+          # NGINX config
           cat <<EOF > /etc/nginx/sites-available/default
           server {
               listen 80 default_server;
@@ -252,7 +217,7 @@ Resources:
           systemctl restart nginx
           systemctl restart php8.1-fpm || true
 
-          # Wait for RDS DNS and port
+          # Wait for RDS DNS
           until getent hosts ${JoomlaDB.Endpoint.Address}; do
             echo "Waiting for RDS DNS..."
             sleep 5
@@ -263,7 +228,7 @@ Resources:
             sleep 5
           done
 
-          # Joomla headless install
+          # Headless Joomla install
           cd /var/www/html
           php cli/joomla.php site:install \
             --db-driver=mysqli \
