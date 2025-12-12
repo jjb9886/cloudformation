@@ -1,4 +1,4 @@
-name: Deploy CloudFormation Free-tier WordPress on EC2 with local MySQL
+name: Deploy CloudFormation Free-tier Joomla on EC2 with local MySQL
 
 on:
   push:
