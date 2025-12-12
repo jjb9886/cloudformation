@@ -176,57 +176,86 @@ Resources:
         - Key: Name
           Value: Joomla-Ubuntu
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          set -xe
+        #!/bin/bash
+set -xe
 
-          apt update -y
-          apt install -y apache2 php php-mysql php-cli php-xml php-curl \
-                         php-mbstring php-gd php-json php-zip unzip wget
+# Update packages
+apt update -y
 
-          systemctl enable apache2
-          systemctl restart apache2
+# Install NGINX + PHP-FPM + necessary PHP extensions + unzip + wget
+apt install -y nginx php-fpm php-mysql php-xml php-mbstring \
+               php-json php-curl php-zip php-gd php-cli unzip wget
 
-          cd /tmp
-          wget -O joomla.zip https://downloads.joomla.org/cms/joomla4/4-4-14/Joomla_4-4-14-Stable-Full_Package.zip?format=zip
-          unzip joomla.zip -d /var/www/html/
+# Enable and restart NGINX
+systemctl enable nginx
+systemctl restart nginx
 
-          # Create Joomla configuration.php from template
-          cat <<EOF > /var/www/html/configuration.php
-          <?php
-          class JConfig {
-              public \$offline = '0';
-              public \$sitename = 'My Joomla Site';
-              public \$editor = 'tinymce';
-              public \$list_limit = '20';
-              public \$access = '1';
-              public \$dbtype = 'mysqli';
-              public \$host = '${JoomlaDB.Endpoint.Address}';
-              public \$user = '${DBUser}';
-              public \$password = '${DBPassword}';
-              public \$db = 'joomla';
-              public \$dbprefix = 'jos_';
-              public \$secret = '$(openssl rand -hex 16)';
-              public \$gzip = '0';
-              public \$error_reporting = 'default';
-              public \$helpurl = '';
-          }
-          EOF
+# Download Joomla 4 latest stable
+cd /tmp
+wget -O joomla.zip https://github.com/joomla/joomla-cms/releases/latest/download/Joomla_4-Stable-Full_Package.zip
+unzip joomla.zip -d /var/www/html/
+rm joomla.zip
 
-          chown -R www-data:www-data /var/www/html
-          chmod -R 755 /var/www/html
+# Set permissions
+chown -R www-data:www-data /var/www/html
+chmod -R 755 /var/www/html
 
-          # Enable Apache rewrite
-          a2enmod rewrite
-          sed -i 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
-          systemctl restart apache2
+# Create swap (needed for t2.micro/t3.micro)
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
 
-          # Add swap (helps free-tier)
-          fallocate -l 2G /swapfile
-          chmod 600 /swapfile
-          mkswap /swapfile
-          swapon /swapfile
-          echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
+# Configure NGINX for Joomla
+cat <<EOF > /etc/nginx/sites-available/default
+server {
+    listen 80 default_server;
+    root /var/www/html;
+    index index.php index.html;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+        try_files \$uri =404;
+    }
+}
+EOF
+
+systemctl restart nginx
+systemctl restart php8.1-fpm || true
+
+# -------------------------------
+# Joomla CLI headless installation
+# -------------------------------
+
+cd /var/www/html
+
+# Run Joomla CLI installer
+php cli/joomla.php site:install \
+    --db-driver=mysqli \
+    --db-host=${JoomlaDB.Endpoint.Address} \
+    --db-user=${DBUser} \
+    --db-pass=${DBPassword} \
+    --db-name=joomla \
+    --db-prefix=jos_ \
+    --admin-user=admin \
+    --admin-pass=Admin123! \
+    --admin-email=admin@example.com \
+    --site-name="My Joomla Site" \
+    --force
+
+# Set ownership after CLI install
+chown -R www-data:www-data /var/www/html
+chmod -R 755 /var/www/html
+
 
 
 Outputs:
