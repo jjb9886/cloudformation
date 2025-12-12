@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Joomla 4 on EC2 (NGINX + PHP-FPM) with RDS MariaDB in a simple VPC
+Description: Secure Joomla on EC2 (NGINX + PHP-FPM) with private RDS MariaDB
 
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: Name of an existing EC2 KeyPair to SSH into the server.
+    Description: EC2 KeyPair
 
   InstanceType:
     Type: String
@@ -18,18 +18,15 @@ Parameters:
   DBUser:
     Type: String
     Default: joomlauser
-    Description: RDS database username
 
   DBPassword:
     NoEcho: true
     Type: String
     MinLength: 8
-    Description: RDS database password
 
   SSHLocation:
     Type: String
     Default: 0.0.0.0/0
-    Description: Restrict SSH access
 
 Resources:
   #######################
@@ -41,9 +38,6 @@ Resources:
       CidrBlock: 10.0.0.0/16
       EnableDnsHostnames: true
       EnableDnsSupport: true
-      Tags:
-        - Key: Name
-          Value: SimpleVPC
 
   PublicSubnet:
     Type: AWS::EC2::Subnet
@@ -112,15 +106,11 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
 
   RDSSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow MySQL/MariaDB from EC2
+      GroupDescription: Allow SQL access from EC2
       VpcId: !Ref SimpleVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -129,12 +119,12 @@ Resources:
           SourceSecurityGroupId: !Ref WebServerSG
 
   #######################
-  # RDS MariaDB
+  # Private RDS MariaDB
   #######################
   RDSSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: Subnet group for RDS
+      DBSubnetGroupDescription: Private subnet group for RDS
       SubnetIds:
         - !Ref PrivateSubnetA
         - !Ref PrivateSubnetB
@@ -155,7 +145,7 @@ Resources:
       DBSubnetGroupName: !Ref RDSSubnetGroup
 
   #######################
-  # EC2 Joomla (NGINX + PHP-FPM)
+  # EC2 Joomla (public subnet)
   #######################
   JoomlaInstance:
     Type: AWS::EC2::Instance
@@ -173,90 +163,79 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -xe
-      
-          # Update packages
+
+          # Update & install stack
           apt update -y
-      
-          # Install NGINX + PHP-FPM + extensions
           apt install -y nginx php-fpm php-mysql php-xml php-mbstring php-json php-curl php-zip php-gd php-cli unzip wget netcat
-      
-          # Enable and restart NGINX
+
           systemctl enable nginx
           systemctl restart nginx
-      
-          # Download Joomla 4
+
+          # Download Joomla
           cd /tmp
           wget -O joomla.zip https://github.com/joomla/joomla-cms/releases/latest/download/Joomla_4-Stable-Full_Package.zip
           unzip joomla.zip -d /var/www/html/
           rm joomla.zip
-      
-          # Set permissions
+
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
-      
-          # Swap for micro instances
+
+          # Swap
           fallocate -l 2G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
           swapon /swapfile
           echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
-      
-          # Configure NGINX for Joomla
+
+          # Configure NGINX
           cat <<EOF > /etc/nginx/sites-available/default
           server {
               listen 80 default_server;
               root /var/www/html;
               index index.php index.html;
-      
+
               location / {
                   try_files \$uri \$uri/ /index.php?\$args;
               }
-      
+
               location ~ \.php$ {
                   include snippets/fastcgi-php.conf;
                   fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
               }
-      
+
               location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
                   try_files \$uri =404;
               }
           }
           EOF
-      
+
           systemctl restart nginx
           systemctl restart php8.1-fpm || true
-      
-          # -------------------------------
-          # Wait for MariaDB RDS to be available
-          # -------------------------------
+
+          # Wait for RDS in private subnet
           until nc -z -v -w30 ${JoomlaDB.Endpoint.Address} 3306
           do
             echo "Waiting for MariaDB RDS..."
             sleep 10
           done
-      
-          # -------------------------------
-          # Joomla CLI headless installation
-          # -------------------------------
+
+          # Joomla headless install
           cd /var/www/html
-      
           php cli/joomla.php site:install \
-              --db-driver=mysqli \
-              --db-host=${JoomlaDB.Endpoint.Address} \
-              --db-user=${DBUser} \
-              --db-pass=${DBPassword} \
-              --db-name=joomla \
-              --db-prefix=jos_ \
-              --admin-user=admin \
-              --admin-pass=Admin123! \
-              --admin-email=admin@example.com \
-              --site-name="My Joomla Site" \
-              --force
-      
-          # Ensure permissions are correct
+            --db-driver=mysqli \
+            --db-host=${JoomlaDB.Endpoint.Address} \
+            --db-user=${DBUser} \
+            --db-pass=${DBPassword} \
+            --db-name=joomla \
+            --db-prefix=jos_ \
+            --admin-user=admin \
+            --admin-pass=Admin123! \
+            --admin-email=admin@example.com \
+            --site-name="My Joomla Site" \
+            --force
+
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
-
 
 Outputs:
   WebsiteURL:
@@ -264,5 +243,5 @@ Outputs:
     Value: !Sub "http://${JoomlaInstance.PublicDnsName}"
 
   RDSEndpoint:
-    Description: MariaDB RDS Endpoint
+    Description: Private MariaDB RDS Endpoint
     Value: !GetAtt JoomlaDB.Endpoint.Address
