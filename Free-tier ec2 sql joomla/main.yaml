@@ -62,10 +62,11 @@ Resources:
           # Download Joomla
           cd /tmp
           wget -O joomla.zip https://github.com/joomla/joomla-cms/releases/latest/download/Joomla_4-Stable-Full_Package.zip
-          unzip joomla.zip -d joomla
+          unzip joomla.zip -d /var/www/html/
+          rm joomla.zip
 
-          rm -rf /var/www/html/*
-          cp -R joomla/* /var/www/html/
+          chown -R www-data:www-data /var/www/html
+          chmod -R 755 /var/www/html
 
           # Set permissions
           chown -R www-data:www-data /var/www/html
