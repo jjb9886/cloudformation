@@ -173,55 +173,73 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -xe
-
+      
+          # Update packages
           apt update -y
-          apt install -y nginx php-fpm php-mysql php-xml php-mbstring php-json php-curl php-zip php-gd php-cli unzip wget
-
+      
+          # Install NGINX + PHP-FPM + extensions
+          apt install -y nginx php-fpm php-mysql php-xml php-mbstring php-json php-curl php-zip php-gd php-cli unzip wget netcat
+      
+          # Enable and restart NGINX
           systemctl enable nginx
           systemctl restart nginx
-
+      
+          # Download Joomla 4
           cd /tmp
           wget -O joomla.zip https://github.com/joomla/joomla-cms/releases/latest/download/Joomla_4-Stable-Full_Package.zip
           unzip joomla.zip -d /var/www/html/
           rm joomla.zip
-
+      
+          # Set permissions
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
-
+      
           # Swap for micro instances
           fallocate -l 2G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
           swapon /swapfile
           echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
-
-          # NGINX config
+      
+          # Configure NGINX for Joomla
           cat <<EOF > /etc/nginx/sites-available/default
           server {
               listen 80 default_server;
               root /var/www/html;
               index index.php index.html;
-
+      
               location / {
                   try_files \$uri \$uri/ /index.php?\$args;
               }
-
+      
               location ~ \.php$ {
                   include snippets/fastcgi-php.conf;
                   fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
               }
-
+      
               location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
                   try_files \$uri =404;
               }
           }
           EOF
-
+      
           systemctl restart nginx
           systemctl restart php8.1-fpm || true
-
+      
+          # -------------------------------
+          # Wait for MariaDB RDS to be available
+          # -------------------------------
+          until nc -z -v -w30 ${JoomlaDB.Endpoint.Address} 3306
+          do
+            echo "Waiting for MariaDB RDS..."
+            sleep 10
+          done
+      
+          # -------------------------------
           # Joomla CLI headless installation
+          # -------------------------------
           cd /var/www/html
+      
           php cli/joomla.php site:install \
               --db-driver=mysqli \
               --db-host=${JoomlaDB.Endpoint.Address} \
@@ -234,9 +252,11 @@ Resources:
               --admin-email=admin@example.com \
               --site-name="My Joomla Site" \
               --force
-
+      
+          # Ensure permissions are correct
           chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
+
 
 Outputs:
   WebsiteURL:
