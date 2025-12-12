@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: "EC2 Joomla Server with RDS MySQL"
 
 Parameters:
-  KeyPairName:
+  KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: EC2 Key Pair for SSH access
 
