@@ -1,8 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Joomla on EC2 with RDS MySQL in a simple VPC (multi-AZ RDS)
+Description: Joomla 4 on EC2 (NGINX + PHP-FPM) with RDS MariaDB in a simple VPC
 
 Parameters:
-
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Name of an existing EC2 KeyPair to SSH into the server.
@@ -32,9 +31,7 @@ Parameters:
     Default: 0.0.0.0/0
     Description: Restrict SSH access
 
-
 Resources:
-
   #######################
   # VPC & Networking
   #######################
@@ -98,7 +95,6 @@ Resources:
       SubnetId: !Ref PublicSubnet
       RouteTableId: !Ref PublicRouteTable
 
-
   #######################
   # Security Groups
   #######################
@@ -124,7 +120,7 @@ Resources:
   RDSSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow MySQL from EC2
+      GroupDescription: Allow MySQL/MariaDB from EC2
       VpcId: !Ref SimpleVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -132,9 +128,8 @@ Resources:
           ToPort: 3306
           SourceSecurityGroupId: !Ref WebServerSG
 
-
   #######################
-  # RDS MySQL
+  # RDS MariaDB
   #######################
   RDSSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -149,8 +144,8 @@ Resources:
     Properties:
       DBInstanceClass: db.t3.micro
       AllocatedStorage: "20"
-      Engine: mysql
-      EngineVersion: "8.0"
+      Engine: mariadb
+      EngineVersion: "10.6"
       MasterUsername: !Ref DBUser
       MasterUserPassword: !Ref DBPassword
       DBName: joomla
@@ -159,9 +154,8 @@ Resources:
         - !Ref RDSSG
       DBSubnetGroupName: !Ref RDSSubnetGroup
 
-
   #######################
-  # EC2 Joomla
+  # EC2 Joomla (NGINX + PHP-FPM)
   #######################
   JoomlaInstance:
     Type: AWS::EC2::Instance
@@ -174,95 +168,81 @@ Resources:
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
       Tags:
         - Key: Name
-          Value: Joomla-Ubuntu
+          Value: Joomla-NGINX
       UserData:
-        #!/bin/bash
-        set -xe
-        # Update packages
-        apt update -y
-        
-        # Install NGINX + PHP-FPM + necessary PHP extensions + unzip + wget
-        apt install -y nginx php-fpm php-mysql php-xml php-mbstring \
-                       php-json php-curl php-zip php-gd php-cli unzip wget
-        
-        # Enable and restart NGINX
-        systemctl enable nginx
-        systemctl restart nginx
-        
-        # Download Joomla 4 latest stable
-        cd /tmp
-        wget -O joomla.zip https://github.com/joomla/joomla-cms/releases/latest/download/Joomla_4-Stable-Full_Package.zip
-        unzip joomla.zip -d /var/www/html/
-        rm joomla.zip
-        
-        # Set permissions
-        chown -R www-data:www-data /var/www/html
-        chmod -R 755 /var/www/html
-        
-        # Create swap (needed for t2.micro/t3.micro)
-        fallocate -l 2G /swapfile
-        chmod 600 /swapfile
-        mkswap /swapfile
-        swapon /swapfile
-        echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
-        
-        # Configure NGINX for Joomla
-        cat <<EOF > /etc/nginx/sites-available/default
-        server {
-            listen 80 default_server;
-            root /var/www/html;
-            index index.php index.html;
-        
-            location / {
-                try_files \$uri \$uri/ /index.php?\$args;
-            }
-        
-            location ~ \.php$ {
-                include snippets/fastcgi-php.conf;
-                fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-            }
-        
-            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-                try_files \$uri =404;
-            }
-        }
-        EOF
-        
-        systemctl restart nginx
-        systemctl restart php8.1-fpm || true
-        
-        # -------------------------------
-        # Joomla CLI headless installation
-        # -------------------------------
-        
-        cd /var/www/html
-        
-        # Run Joomla CLI installer
-        php cli/joomla.php site:install \
-            --db-driver=mysqli \
-            --db-host=${JoomlaDB.Endpoint.Address} \
-            --db-user=${DBUser} \
-            --db-pass=${DBPassword} \
-            --db-name=joomla \
-            --db-prefix=jos_ \
-            --admin-user=admin \
-            --admin-pass=Admin123! \
-            --admin-email=admin@example.com \
-            --site-name="My Joomla Site" \
-            --force
-        
-        # Set ownership after CLI install
-        chown -R www-data:www-data /var/www/html
-        chmod -R 755 /var/www/html
-      
-      
-      
-Outputs:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -xe
 
+          apt update -y
+          apt install -y nginx php-fpm php-mysql php-xml php-mbstring php-json php-curl php-zip php-gd php-cli unzip wget
+
+          systemctl enable nginx
+          systemctl restart nginx
+
+          cd /tmp
+          wget -O joomla.zip https://github.com/joomla/joomla-cms/releases/latest/download/Joomla_4-Stable-Full_Package.zip
+          unzip joomla.zip -d /var/www/html/
+          rm joomla.zip
+
+          chown -R www-data:www-data /var/www/html
+          chmod -R 755 /var/www/html
+
+          # Swap for micro instances
+          fallocate -l 2G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
+
+          # NGINX config
+          cat <<EOF > /etc/nginx/sites-available/default
+          server {
+              listen 80 default_server;
+              root /var/www/html;
+              index index.php index.html;
+
+              location / {
+                  try_files \$uri \$uri/ /index.php?\$args;
+              }
+
+              location ~ \.php$ {
+                  include snippets/fastcgi-php.conf;
+                  fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+              }
+
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                  try_files \$uri =404;
+              }
+          }
+          EOF
+
+          systemctl restart nginx
+          systemctl restart php8.1-fpm || true
+
+          # Joomla CLI headless installation
+          cd /var/www/html
+          php cli/joomla.php site:install \
+              --db-driver=mysqli \
+              --db-host=${JoomlaDB.Endpoint.Address} \
+              --db-user=${DBUser} \
+              --db-pass=${DBPassword} \
+              --db-name=joomla \
+              --db-prefix=jos_ \
+              --admin-user=admin \
+              --admin-pass=Admin123! \
+              --admin-email=admin@example.com \
+              --site-name="My Joomla Site" \
+              --force
+
+          chown -R www-data:www-data /var/www/html
+          chmod -R 755 /var/www/html
+
+Outputs:
   WebsiteURL:
     Description: Joomla Website URL
     Value: !Sub "http://${JoomlaInstance.PublicDnsName}"
 
   RDSEndpoint:
-    Description: RDS Connection Endpoint
+    Description: MariaDB RDS Endpoint
     Value: !GetAtt JoomlaDB.Endpoint.Address
