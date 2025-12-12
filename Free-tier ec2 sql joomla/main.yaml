@@ -1,31 +1,12 @@
-AWSTemplateFormatVersion: "2010-09-09" 
-Description: "EC2 Joomla Server with RDS MySQL"
+AWSTemplateFormatVersion: "2010-09-09"
+Description: EC2 Ubuntu instance running Joomla
 
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: EC2 Key Pair for SSH access
+    Description: Name of an existing EC2 KeyPair to SSH into the server.
 
-  DBUsername:
-    Type: String
-    Default: joomlauser
-    Description: Username for Joomla database
-
-  DBPassword:
-    NoEcho: true
-    Type: String
-    MinLength: 8
-    Description: Password for Joomla database
-
-  DBInstanceClass:
-    Type: String
-    Default: db.t3.micro
-    AllowedValues:
-      - db.t3.micro
-      - db.t3.small
-      - db.t3.medium
-
-  EC2InstanceType:
+  InstanceType:
     Type: String
     Default: t3.micro
     AllowedValues:
@@ -33,13 +14,14 @@ Parameters:
       - t3.micro
       - t3.small
       - t3.medium
+    Description: EC2 instance type.
 
 Resources:
 
   JoomlaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP and SSH
+      GroupDescription: Allow HTTP, HTTPS, SSH
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -49,78 +31,63 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-
-  RDSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow MySQL from EC2
-      SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          SourceSecurityGroupId: !Ref JoomlaSecurityGroup
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
 
   JoomlaInstance:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: !Ref EC2InstanceType
+      InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
       SecurityGroupIds:
         - !Ref JoomlaSecurityGroup
-      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2 (update if needed)
+      ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          yum update -y
-          amazon-linux-extras install php7.4 mariadb10.5 -y
-          yum install -y httpd wget unzip
+          apt update -y
+          apt install -y apache2 mysql-server php php-mysql php-zip php-intl php-gd php-curl php-xml php-mbstring php-json php-cli unzip wget
 
-          systemctl enable httpd
-          systemctl start httpd
+          systemctl enable apache2
+          systemctl start apache2
 
-          cd /var/www/html
-          wget https://downloads.joomla.org/cms/joomla4/4-4-3/Joomla_4-4-3-Stable-Full_Package.zip
-          unzip Joomla_4-4-3-Stable-Full_Package.zip
-          chown -R apache:apache /var/www/html
+          # Setup MySQL for Joomla
+          mysql -e "CREATE DATABASE joomla;"
+          mysql -e "CREATE USER 'juser'@'localhost' IDENTIFIED BY 'Password123!';"
+          mysql -e "GRANT ALL PRIVILEGES ON joomla.* TO 'juser'@'localhost';"
+          mysql -e "FLUSH PRIVILEGES;"
+
+          # Download Joomla
+          cd /tmp
+          wget https://downloads.joomla.org/cms/joomla4/latest/Joomla_4-Stable-Full_Package.zip?format=zip -O joomla.zip
+          unzip joomla.zip -d joomla
+
+          rm -rf /var/www/html/*
+          cp -R joomla/* /var/www/html/
+
+          # Set permissions
+          chown -R www-data:www-data /var/www/html
           chmod -R 755 /var/www/html
 
-          # Configure Joomla configuration.php
-          cat <<EOF > /var/www/html/configuration.php
-          <?php
-          public \$offline = '0';
-          public \$sitename = 'Joomla Site';
-          public \$dbtype = 'mysqli';
-          public \$host = '${DBEndpoint}';
-          public \$user = '${DBUsername}';
-          public \$password = '${DBPassword}';
-          public \$db = 'joomla';
-          public \$dbprefix = 'jos_';
-          EOF
+          # Enable Apache rewrite
+          a2enmod rewrite
+          sed -i 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+          systemctl restart apache2
 
-          systemctl restart httpd
+          # Swap for small instances
+          fallocate -l 2G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
 
       Tags:
         - Key: Name
-          Value: JoomlaServer
-
-  JoomlaDB:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBName: joomla
-      Engine: mysql
-      MasterUsername: !Ref DBUsername
-      MasterUserPassword: !Ref DBPassword
-      AllocatedStorage: 20
-      DBInstanceClass: !Ref DBInstanceClass
-      VPCSecurityGroups:
-        - !Ref RDSSecurityGroup
-    DeletionPolicy: Snapshot
+          Value: Joomla-Ubuntu
 
 Outputs:
-  JoomlaURL:
-    Description: "Joomla Website URL"
+  WebsiteURL:
+    Description: Joomla Website URL
     Value: !Sub "http://${JoomlaInstance.PublicDnsName}"
-
-  RDSEndpoint:
-    Description: "MySQL Endpoint"
-    Value: !GetAtt JoomlaDB.Endpoint.Address
