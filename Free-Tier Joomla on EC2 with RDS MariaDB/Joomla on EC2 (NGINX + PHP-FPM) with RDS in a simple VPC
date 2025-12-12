@@ -4,7 +4,7 @@ Description: Joomla on EC2 (NGINX + PHP-FPM) with public EC2 and private RDS Mar
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: EC2 KeyPair for SSH
+    Description: EC2 KeyPair for SSH access
 
   InstanceType:
     Type: String
@@ -157,7 +157,7 @@ Resources:
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
-      SubnetId: !Ref PublicSubnet       # Public subnet
+      SubnetId: !Ref PublicSubnet
       SecurityGroupIds:
         - !Ref WebServerSG
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
