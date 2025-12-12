@@ -157,8 +157,7 @@ Resources:
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
-      SubnetId: !Ref PublicSubnet       # Public subnet for website
-      AssociatePublicIpAddress: true    # Assign public IP
+      SubnetId: !Ref PublicSubnet       # Public subnet
       SecurityGroupIds:
         - !Ref WebServerSG
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
