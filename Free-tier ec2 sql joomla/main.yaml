@@ -63,7 +63,7 @@ Resources:
 
           cd /tmp
           wget --user-agent="Mozilla/5.0" --trust-server-names -O joomla.zip \
-            "https://downloads.joomla.org/cms/joomla4/4-4-14/Joomla_4-4-14-Stable-Full_Package.zip?format=zip"
+            "https://downloads.joomla.org/cms/joomla6/6-0-1/Joomla_6-0-1-Stable-Full_Package.zip?format=zip"
 
           unzip joomla.zip -d /var/www/html/
           rm joomla.zip
