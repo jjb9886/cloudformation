@@ -30,7 +30,7 @@ jobs:
         run: |
           aws cloudformation deploy \
             --template-file "Free-tier ec2 sql joomla/main.yaml" \
-            --stack-name my-stack1 \
+            --stack-name my-stack2 \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               Env=Prod \
