@@ -3,10 +3,10 @@ name: Deploy CloudFormation Free-tier Joomla on EC2 with local MySQL
 on:
   push:
     paths:
-      - 'Free-tier ec2 sql joomla/Free-tier ec2 sql joomla/main.yaml'
+      - 'Free-tier ec2 sql joomla/main.yaml'
   pull_request:
     paths:
-      - 'Free-tier ec2 sql joomla/Free-tier ec2 sql joomla/main.yaml'
+      - 'Free-tier ec2 sql joomla/main.yaml'
 
 jobs:
   deploy:
