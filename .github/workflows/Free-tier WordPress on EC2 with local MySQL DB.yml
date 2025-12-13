@@ -3,10 +3,10 @@ name: Deploy CloudFormation Free-tier WordPress on EC2 with local MySQL
 on:
   push:
     paths:
-      - 'Free-tier WordPress on EC2 with local MySQL DB/**'
+      - 'Free-tier WordPress on EC2 with local MySQL DB/Free-tier WordPress on EC2 with local MySQL'
   pull_request:
     paths:
-      - 'Free-tier WordPress on EC2 with local MySQL DB/**'
+      - 'Free-tier WordPress on EC2 with local MySQL DB/Free-tier WordPress on EC2 with local MySQL'
 
 jobs:
   deploy:
