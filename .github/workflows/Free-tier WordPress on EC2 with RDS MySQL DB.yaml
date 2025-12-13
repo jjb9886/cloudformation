@@ -3,10 +3,10 @@ name: Deploy CloudFormation Free-tier WordPress on EC2 with RDS MYSQL
 on:
   push:
     paths:
-      - 'Free-tier WordPress on EC2 with RDS MySQL DB/**'
+      - 'Free-tier WordPress on EC2 with RDS MySQL DB/Free-tier WordPress on EC2 with RDS MySQL database'
   pull_request:
     paths:
-      - 'Free-tier WordPress on EC2 with RDS MySQL DB/**'
+      - 'Free-tier WordPress on EC2 with RDS MySQL DB/Free-tier WordPress on EC2 with RDS MySQL database'
 
 jobs:
   deploy:
