@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: EC2 Ubuntu instance running Joomla
+Description: EC2 Ubuntu instance running Joomla 
 
 Parameters:
   KeyName:
