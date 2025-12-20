@@ -1,0 +1,62 @@
+---
+Metadata:
+  AWSToolsMetrics:
+    IaC_Generator: "arn:aws:cloudformation:eu-west-1:567492371908:generatedTemplate/b945fd42-9046-4ca4-83b2-e8f4cf13b499"
+Resources:
+  LightsailInstanceWordPress1:
+    UpdateReplacePolicy: "Retain"
+    Type: "AWS::Lightsail::Instance"
+    DeletionPolicy: "Delete"
+    Properties:
+      InstanceName: "WordPress-1"
+      KeyPairName: "LightsailDefaultKeyPair"
+      BundleId: "small_3_0"
+      BlueprintId: "wordpress"
+      Networking:
+        Ports:
+        - FromPort: 443
+          AccessDirection: "inbound"
+          CidrListAliases: []
+          ToPort: 443
+          Ipv6Cidrs:
+          - "::/0"
+          AccessFrom: "Anywhere (0.0.0.0/0 and ::/0)"
+          Protocol: "tcp"
+          AccessType: "public"
+          Cidrs:
+          - "0.0.0.0/0"
+          CommonName: ""
+        - FromPort: 22
+          AccessDirection: "inbound"
+          CidrListAliases: []
+          ToPort: 22
+          Ipv6Cidrs:
+          - "::/0"
+          AccessFrom: "Anywhere (0.0.0.0/0 and ::/0)"
+          Protocol: "tcp"
+          AccessType: "public"
+          Cidrs:
+          - "0.0.0.0/0"
+          CommonName: ""
+        - FromPort: 80
+          AccessDirection: "inbound"
+          CidrListAliases: []
+          ToPort: 80
+          Ipv6Cidrs:
+          - "::/0"
+          AccessFrom: "Anywhere (0.0.0.0/0 and ::/0)"
+          Protocol: "tcp"
+          AccessType: "public"
+          Cidrs:
+          - "0.0.0.0/0"
+          CommonName: ""
+        MonthlyTransfer: {}
+      State: {}
+      AvailabilityZone: "eu-west-1a"
+      AddOns: []
+      Hardware:
+        Disks: []
+      Tags:
+      - Value: "lightsail"
+        Key: "lightsail"
+      Location: {}
