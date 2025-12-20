@@ -58,5 +58,5 @@ Resources:
         Disks: []
       Tags:
       - Value: "lightsail"
-        Key: "lightsail"
+        Key: "lightsail-wp1"
       Location: {}
