@@ -1,2 +1,2 @@
-Example Wordpress using Astra deployed on AWS EC2 with MYSQL DB
+Example Wordpress using Elementor deployed on Lightsail wordpress instance
 http://54.216.162.145
