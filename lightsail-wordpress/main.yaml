@@ -8,7 +8,7 @@ Resources:
     Type: "AWS::Lightsail::Instance"
     DeletionPolicy: "Delete"
     Properties:
-      InstanceName: "WordPress-1"
+      InstanceName: "WordPress-2"
       KeyPairName: "LightsailDefaultKeyPair"
       BundleId: "small_3_0"
       BlueprintId: "wordpress"
