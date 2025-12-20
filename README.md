@@ -1,2 +1,2 @@
 Example Wordpress using Elementor deployed on Lightsail wordpress instance
-http://54.216.162.145
+http://52.214.255.185
