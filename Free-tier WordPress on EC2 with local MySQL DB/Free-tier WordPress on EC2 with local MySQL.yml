@@ -89,5 +89,4 @@ Resources:
 Outputs:
   WebsiteURL:
     Description: WordPress Website URL
-    Value:
-      Fn::Sub: "http://${WordPressInstance.PublicDnsName}"
+    Value: !Sub: "http://${WordPressInstance.PublicDnsName}"
