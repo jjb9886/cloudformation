@@ -1,0 +1,183 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Lightsail start/stop with 5-minute window, SNS notifications, per-instance schedules
+
+Parameters:
+  DefaultStartTime:
+    Type: String
+    Default: "08:00"
+    Description: Default start time (HH:MM)
+
+  DefaultStopTime:
+    Type: String
+    Default: "20:00"
+    Description: Default stop time (HH:MM)
+
+  ScheduleTagKey:
+    Type: String
+    Default: AutoSchedule
+
+  ScheduleTagValue:
+    Type: String
+    Default: "true"
+
+  NotificationEmail:
+    Type: String
+    Description: Email address for start/stop notifications
+
+Resources:
+
+  ################
+  # SNS
+  ################
+  SchedulerTopic:
+    Type: AWS::SNS::Topic
+
+  SchedulerSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref SchedulerTopic
+      Endpoint: !Ref NotificationEmail
+
+  ################
+  # IAM Role
+  ################
+  LightsailSchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LightsailSchedulerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lightsail:GetInstances
+                  - lightsail:GetInstance
+                  - lightsail:StartInstance
+                  - lightsail:StopInstance
+                Resource: "*"
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref SchedulerTopic
+
+  ################
+  # Lambda
+  ################
+  LightsailSchedulerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.10
+      Handler: index.lambda_handler
+      Role: !GetAtt LightsailSchedulerRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          DEFAULT_START: !Ref DefaultStartTime
+          DEFAULT_STOP: !Ref DefaultStopTime
+          TAG_KEY: !Ref ScheduleTagKey
+          TAG_VALUE: !Ref ScheduleTagValue
+          SNS_TOPIC_ARN: !Ref SchedulerTopic
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          lightsail = boto3.client("lightsail")
+          sns = boto3.client("sns")
+
+          DEFAULT_START = os.environ["DEFAULT_START"]
+          DEFAULT_STOP = os.environ["DEFAULT_STOP"]
+          TAG_KEY = os.environ["TAG_KEY"]
+          TAG_VALUE = os.environ["TAG_VALUE"]
+          SNS_TOPIC = os.environ["SNS_TOPIC_ARN"]
+
+          WINDOW_MINUTES = 5
+
+          def to_minutes(t):
+              h, m = map(int, t.split(":"))
+              return h * 60 + m
+
+          def lambda_handler(event, context):
+              tz = ZoneInfo("Europe/Dublin")
+              now = datetime.now(tz)
+              now_min = now.hour * 60 + now.minute
+
+              instances = lightsail.get_instances()["instances"]
+
+              for inst in instances:
+                  name = inst["name"]
+                  instance = lightsail.get_instance(instanceName=name)["instance"]
+                  tags = {t["key"]: t["value"] for t in instance.get("tags", [])}
+
+                  if tags.get(TAG_KEY) != TAG_VALUE:
+                      continue
+
+                  start_time = tags.get("StartTime", DEFAULT_START)
+                  stop_time = tags.get("StopTime", DEFAULT_STOP)
+
+                  start_min = to_minutes(start_time)
+                  stop_min = to_minutes(stop_time)
+                  state = instance["state"]["name"]
+
+                  # START window
+                  if state == "stopped" and 0 <= now_min - start_min < WINDOW_MINUTES:
+                      logger.info(f"Starting {name}")
+                      lightsail.start_instance(instanceName=name)
+                      notify(f"Started Lightsail instance: {name}")
+
+                  # STOP window
+                  elif state == "running" and 0 <= now_min - stop_min < WINDOW_MINUTES:
+                      logger.info(f"Stopping {name}")
+                      lightsail.stop_instance(instanceName=name)
+                      notify(f"Stopped Lightsail instance: {name}")
+
+              return {"status": "ok"}
+
+          def notify(message):
+              sns.publish(
+                  TopicArn=SNS_TOPIC,
+                  Subject="Lightsail Scheduler",
+                  Message=message
+              )
+
+  ################
+  # EventBridge
+  ################
+  SchedulerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt LightsailSchedulerLambda.Arn
+          Id: LightsailSchedulerTarget
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LightsailSchedulerLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SchedulerRule.Arn
+
+Outputs:
+  LambdaFunction:
+    Value: !Ref LightsailSchedulerLambda
+  SNSTopic:
+    Value: !Ref SchedulerTopic

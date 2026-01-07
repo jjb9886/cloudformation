@@ -1,12 +1,12 @@
-name: Deploy CloudFormation Free-tier WordPress on EC2 with RDS MYSQL
+name: Deploy CloudFormation Free-tier Joomla on EC2 with local MySQL
 
 on:
   push:
     paths:
-      - 'Free-tier WordPress on EC2 with RDS MySQL DB/Free-tier WordPress on EC2 with RDS MySQL database'
+      - 'Free-tier ec2 sql joomla/main.yaml'
   pull_request:
     paths:
-      - 'Free-tier WordPress on EC2 with RDS MySQL DB/Free-tier WordPress on EC2 with RDS MySQL database'
+      - 'Free-tier ec2 sql joomla/main.yaml'
 
 jobs:
   deploy:
@@ -29,12 +29,10 @@ jobs:
       - name: Deploy CloudFormation Stack
         run: |
           aws cloudformation deploy \
-            --template-file "Free-tier WordPress on EC2 with RDS MySQL DB/Free-tier WordPress on EC2 with RDS MySQL database" \
-            --stack-name my-stack-ec2-RDS-MYSQL \
+            --template-file "Free-tier ec2 sql joomla/main.yaml" \
+            --stack-name my-stack2 \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               Env=Prod \
               InstanceType=t3.micro \
-              DBPassword="${{ secrets.DB_PASSWORD }}" \
-              DBUser="wpuser" \
               KeyName=${{ secrets.EC2_KEY_NAME }}
