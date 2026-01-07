@@ -66,7 +66,7 @@ Resources:
           unzip latest.zip
           rm -rf /var/www/html/*
           mv wordpress/* /var/www/html/
-
+          
           cp /var/www/html/wp-config-sample.php /var/www/html/wp-config.php
           sed -i 's/database_name_here/wordpress/' /var/www/html/wp-config.php
           sed -i 's/username_here/wpuser/' /var/www/html/wp-config.php
