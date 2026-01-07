@@ -46,7 +46,7 @@ Resources:
       SecurityGroupIds:
         - Ref WordPressSecurityGroup
       ImageId:
-        Fn::Sub "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
+        "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
       UserData:
         Fn::Base64: |
           #!/bin/bash
@@ -90,5 +90,4 @@ Resources:
 Outputs:
   WebsiteURL:
     Description: WordPress Website URL
-    Value:
-      Fn::Sub: "http://${WordPressInstance.PublicDnsName}"
+    Value: !Sub "http://${WordPressInstance.PublicDnsName}"
