@@ -44,7 +44,7 @@ Resources:
       KeyName:
         Ref: KeyName
       SecurityGroupIds:
-        - Ref WordPressSecurityGroup
+        - Ref: WordPressSecurityGroup
       ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
       UserData:
         Fn::Base64: |
